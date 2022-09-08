@@ -1,0 +1,706 @@
+---
+title: "5205 Group Project - final code"
+author: "Group 5: Huiyu Jiang, Ning Yang, Yuting Zhu, Zixuan Wang"
+date: "4/28/2022"
+output: html_document
+---
+
+#Import Cleaned Data
+```{r}
+setwd('~/Desktop/5205_AAFrameworks&MethodsII_VishalLala/Project')
+data = read.csv('data.csv')
+
+#change column name "id" to "user_id"
+names(data)[1]='user_id'
+
+#add a new column "id"
+data$id <- 1:nrow(data)
+```
+
+
+#Data Exploration
+```{r}
+#average rating score
+tinder_avg_score <- mean(data[data$APP == 'Tinder',]$rating);tinder_avg_score
+bumble_avg_score <- mean(data[data$APP == 'Bumble',]$rating);bumble_avg_score
+hinge_avg_score <- mean(data[data$APP == 'Hinge',]$rating);hinge_avg_score
+```
+
+
+```{r}
+#distribution of reviews
+#install.packages('ggthemes')
+library(ggplot2); library(ggthemes)
+ggplot(data=data[data$APP=="Tinder",],aes(x=rating))+
+  geom_histogram(fill='hotpink3')+
+  theme_bw()+
+  scale_x_reverse()+
+  xlab('Tinder Review Rating')+
+  coord_flip()
+
+ggplot(data=data[data$APP=="Bumble",],aes(x=rating))+
+  geom_histogram(fill='goldenrod2')+
+  theme_bw()+
+  scale_x_reverse()+
+  xlab('Bumble Review Rating')+
+  coord_flip()
+
+ggplot(data=data[data$APP=="Hinge",],aes(x=rating))+
+  geom_histogram(fill='grey30')+
+  theme_bw()+
+  scale_x_reverse()+
+  xlab('Hinge Review Rating')+
+  coord_flip()
+```
+
+
+#Clean and tokenize review data
+```{r}
+#install.packages('tm')
+#install.packages('NLP')
+library(tm)
+library(NLP)
+
+library(SnowballC); library(magrittr)
+
+#create corpus
+corpus = Corpus(VectorSource(data$review))
+#convert to lower case
+corpus = tm_map(corpus,FUN = content_transformer(tolower))
+#remove urls
+corpus = tm_map(corpus,
+                FUN = content_transformer(FUN = function(x)gsub(pattern = 'http[[:alnum:][:punct:]]*',
+                                                                replacement = ' ',x = x)))
+#remove punctuation
+corpus = tm_map(corpus,FUN = removePunctuation)
+#remove stopwords
+corpus = tm_map(corpus,FUN = removeWords,c(stopwords('english')))
+#strip whitespace
+#corpus = tm_map(corpus,FUN = stripWhitespace)
+corpus = tm_map(corpus,FUN = removeWords,c('app', 'great','like', 'likes', 'good', 'better', 'bad', 'don.t', 'doesn.t', 'can.t', 'can','just', 'will','get','bumble','tinder','hinge','didn.t','that','that.s','won.t','you.re','i.ve','it.s','i.m','there.s','there.re'))
+dict = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(data$review))),lowfreq = 0)
+dict_corpus = Corpus(VectorSource(dict))
+
+corpus1 = 
+  corpus %>%
+  tm_map(stemDocument)%>%
+  tm_map(stripWhitespace)
+
+dtm = DocumentTermMatrix(corpus1)
+xdtm = removeSparseTerms(dtm,sparse = 0.95)
+xdtm = as.data.frame(as.matrix(xdtm))
+colnames(xdtm) = stemCompletion(x = colnames(xdtm),dictionary = dict_corpus,type = 'prevalent')
+colnames(xdtm) = make.names(colnames(xdtm))
+```
+
+#Remove stopwords from dataframe, prepare for sentiment analysis
+```{r}
+stop_words = c('app', 'great','like', 'likes', 'good', 'better', 'bad', 'don.t', 'doesn.t', 'can.t', 'can','just', 'will','get','bumble','tinder','hinge','didn.t','that','that.s','won.t','you.re','i.ve','it.s','i.m','there.s','there.re', 'love', 'will', 'best', 'liked')
+
+custom_stopwords = rbind(stop_words, data.frame(word = tm::stopwords(), lexicon = 'tm'), data.frame(word = c(tm::stopwords(), 'app', 'great','like', 'likes', 'good', 'better', 'bad', 'don.t', 'doesn.t', 'can.t', 'can','just', 'will','get','bumble','tinder','hinge','didn.t','that','that.s','won.t','you.re','i.ve','it.s','i.m','there.s','there.re', 'love', 'will', 'best', 'liked'), lexicon = 'custom'))
+
+library(dplyr)
+library(tidytext)
+bing1 <- data%>%
+  group_by(id)%>%
+  unnest_tokens(output = word, input = review)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)
+bing1
+```
+
+
+
+#Sentiment Analysis
+###Valence of words
+```{r}
+data%>%
+  group_by(id)%>%
+  unnest_tokens(output = word, input = review)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)
+```
+
+##Bing Sentiment Lexicons
+###Valence in Reviews
+Find out the total number of positive and negative words in the reviews
+```{r}
+data%>%
+  group_by(id)%>%
+  unnest_tokens(output = word, input = review)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count()
+```
+
+
+Visualize total number of positive and negative words in the reviews
+```{r}
+library(ggplot2); library(ggthemes)
+data%>%
+  group_by(id)%>%
+  unnest_tokens(output = word, input = review)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count()%>%
+  ggplot(aes(x=sentiment,y=n,fill=sentiment))+
+  geom_col()+
+  theme_economist()+
+  guides(fill=F)+
+  coord_flip()
+```
+
+
+###bing & specific words in review
+```{r}
+library(dplyr)
+library(tidytext)
+bing_data<-data%>%
+  group_by(id)%>%
+  unnest_tokens(output = word, input = review)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  count(word,sentiment,sort=TRUE)
+bing_data
+```
+
+
+###bing- top 10 words
+```{r}
+bing_top10_words<-bing_data%>%
+  group_by(sentiment)%>%
+  slice_max(order_by = n,n=30)%>%
+  ungroup%>%
+  mutate(word=reorder(word,n))
+bing_top10_words%>%
+  ggplot(aes(word,n,fill=sentiment))+
+  geom_col(show.legend = FALSE)+
+  facet_wrap(~sentiment,scales='free_y')+
+  labs(y="Contribution to sentiment",x = NULL)+
+  coord_flip()
+```
+
+
+###Positive words
+Find out the proportion of words in reviews that are positive: the ratio of number of positive words to sum of positive and negative words.
+```{r}
+data %>%
+  select(id,review)%>%
+  group_by(id)%>%
+  unnest_tokens(output=word,input=review)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+```
+
+
+proportion of positive (and negative words) for each rating
+```{r}
+data %>%
+  select(id,review,rating)%>%
+  group_by(id, rating)%>%
+  unnest_tokens(output=word,input=review)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(rating,sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+```
+
+
+proportion of positive (and negative words) for each rating 
+```{r}
+library(ggthemes)
+data %>%
+  select(id,review,rating)%>%
+  group_by(id, rating)%>%
+  unnest_tokens(output=word,input=review)%>%
+  ungroup()%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(rating,sentiment)%>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))%>%
+  ggplot(aes(x=rating,y=proportion,fill=sentiment))+
+  geom_col()+
+  theme_economist()+
+  coord_flip()
+```
+
+###Positive Reviews
+compute the proportion of positive words for each review: the ratio of positive words and the sum of positive and negative words. 
+```{r}
+data%>%
+  group_by(id, rating)%>%
+  unnest_tokens(output = word, input = review)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(id,rating)%>%
+  summarize(positive_words = sum(sentiment=='positive'),
+            negative_words = sum(sentiment=='negative'),
+            proportion_positive = positive_words/(positive_words+negative_words))%>%
+  ungroup()
+```
+
+
+See if reviews with a lot of positive words are rated favorably
+```{r}
+data%>%
+  group_by(id, rating)%>%
+  unnest_tokens(output = word, input = review)%>%
+  inner_join(get_sentiments('bing'))%>%
+  group_by(id,rating)%>%
+  summarize(positive_words = sum(sentiment=='positive'),
+            negative_words = sum(sentiment=='negative'),
+            proportion_positive = positive_words/(positive_words+negative_words))%>%
+  ungroup()%>%
+  summarize(correlation = cor(proportion_positive,rating))
+```
+
+
+##Visualize Text
+Word Cloud
+```{r}
+#install.packages('wordcloud')
+library(wordcloud)
+
+corpus2 = 
+  corpus %>%
+  tm_map(stripWhitespace)
+
+tdm = TermDocumentMatrix(corpus2)
+tdm=as.matrix(tdm)
+w=rowSums(tdm)
+decreasing=TRUE
+w_sub=subset(w,w>5)
+
+wordcloud(words = names(w),freq = w, scale=c(2,.5),min.freq = 50,
+          max.words=200, random.order=FALSE, rot.per=0.35,
+          colors=brewer.pal(8, "Dark2"))
+```
+
+Comparison Cloud
+```{r}
+library(tidyr)
+wordcloudData = 
+  data%>%
+  group_by(id)%>%
+  unnest_tokens(output=word,input=review)%>%
+  ungroup()%>%
+  select(id,word)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  ungroup()%>%
+  count(sentiment,word,sort=T)%>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0)%>%
+  data.frame()
+rownames(wordcloudData) = wordcloudData[,'word']
+wordcloudData = wordcloudData[,c('positive','negative')]
+set.seed(617)
+comparison.cloud(term.matrix = wordcloudData,scale = c(2,0.5),max.words = 200, rot.per=0)
+```
+
+
+#TF-IDF:Predictive Analysis with Text
+Document Term Matrix - tfidf
+```{r}
+dtm_tfidf = DocumentTermMatrix(x=corpus1,
+                               control = list(weighting=function(x) weightTfIdf(x,normalize=F)))
+xdtm_tfidf = removeSparseTerms(dtm_tfidf,sparse = 0.95)
+xdtm_tfidf = as.data.frame(as.matrix(xdtm_tfidf))
+colnames(xdtm_tfidf) = stemCompletion(x = colnames(xdtm_tfidf),
+                                      dictionary = dict_corpus,
+                                      type='prevalent')
+colnames(xdtm_tfidf) = make.names(colnames(xdtm_tfidf))
+sort(colSums(xdtm_tfidf),decreasing = T)
+```
+
+Document Term Matrix: Term Frequency vs. Term Frequency Inverse Document Frequency
+```{r}
+xdtm[611:620,1:10]
+```
+
+```{r}
+xdtm_tfidf[611:620,1:10]
+```
+
+Visualize comparison
+```{r}
+library(tidyr); library(dplyr); library(ggplot2); library(ggthemes)
+data.frame(term = colnames(xdtm),tf = colMeans(xdtm), tfidf = colMeans(xdtm_tfidf))%>%
+  arrange(desc(tf))%>%
+  top_n(20)%>%
+  gather(key=weighting_method,value=weight,2:3)%>%
+  ggplot(aes(x=term,y=weight,fill=weighting_method))+
+  geom_col(position='dodge')+
+  coord_flip()+
+  theme_economist()
+```
+
+Add review_rating back to dataframe of features
+```{r}
+datingAPP_data = cbind(rating = data$rating,xdtm)
+datingAPP_data_tfidf = cbind(rating = data$rating,xdtm_tfidf)
+
+#Delete duplicated columns X
+datingAPP_data <- datingAPP_data %>% 
+  select(-X)
+
+datingAPP_data_tfidf <- datingAPP_data_tfidf %>% 
+  select(-X)
+```
+
+##Using TF features - Predictive Model
+```{r}
+set.seed(1234)
+split = sample(1:nrow(datingAPP_data),size = 0.7*nrow(datingAPP_data))
+train = datingAPP_data[split,]
+test = datingAPP_data[-split,]
+```
+
+###CART
+```{r}
+library(rpart); library(rpart.plot)
+tree = rpart(rating~.,train)
+rpart.plot(tree)
+```
+
+Predictions
+```{r}
+pred_tree = predict(tree,newdata=test)
+rmse_tree = sqrt(mean((pred_tree - test$rating)^2)); rmse_tree
+```
+
+
+###Regression
+```{r}
+reg = lm(rating~.,train)
+summary(reg)
+```
+
+Predictions
+```{r}
+pred_reg = predict(reg, newdata=test)
+rmse_reg = sqrt(mean((pred_reg-test$rating)^2)); rmse_reg
+```
+
+
+##Using TF-IDF features: Predictive Model
+```{r}
+set.seed(1234)
+split = sample(1:nrow(datingAPP_data_tfidf),size = 0.7*nrow(datingAPP_data_tfidf))
+train = datingAPP_data_tfidf[split,]
+test = datingAPP_data_tfidf[-split,]
+```
+
+###CART
+```{r}
+library(rpart); library(rpart.plot)
+tree = rpart(rating~.,train)
+rpart.plot(tree)
+```
+
+Predictions
+```{r}
+pred_tree = predict(tree,newdata=test)
+rmse_tree = sqrt(mean((pred_tree - test$rating)^2)); rmse_tree
+```
+
+
+###Regression
+```{r}
+reg = lm(rating~.,train)
+summary(reg)
+```
+
+
+Predictions
+```{r}
+pred_reg = predict(reg, newdata=test)
+rmse_reg = sqrt(mean((pred_reg-test$rating)^2)); rmse_reg
+```
+
+
+
+#Topic Model
+```{r}
+#install.packages('topicmodels')
+which(rowSums(xdtm)==0)
+xdtm_topic = xdtm[which(rowSums(xdtm)!=0),]
+library(topicmodels)
+set.seed(1234)
+topic2 = LDA(x = xdtm_topic,k = 4)
+terms(topic2,20)
+```
+
+
+```{r}
+# exp(topic2@beta) # term topic probabilities
+# topic2@terms # list of all terms
+length(unique(topic2@terms))
+length(topic2@terms)
+
+df_beta = data.frame(t(exp(topic2@beta)))
+rownames(df_beta) <- make.names((topic2@terms), unique = TRUE)
+
+colnames(df_beta) = c('topic1','topic2', 'topic3', 'topic4')
+df_beta[1:20,] # term - topic probabilities
+```
+
+```{r}
+#Visualize Term-Topic probabilities
+  #Visualize Terms/words that differ the most across topics. 
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic2 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 10,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+Document-Topic probabilities
+```{r}
+# topic2@gamma # document topic probabilities
+df_gamma = cbind(as.integer(topic2@documents), topic2@gamma)
+colnames(df_gamma) = c('id','topic1','topic2', 'topic3', 'topic4')
+df_gamma[1:10,]  # Document probabilities for first 10 documents
+```
+
+Visualize document-topic probabilities for first 20 documents.
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic2%>%
+  tidy('gamma')%>%
+  filter(as.integer(document)<=20)%>%
+  ggplot(aes(x=reorder(document,as.numeric(document)),y=gamma,fill=factor(topic)))+
+  geom_bar(position='fill',stat='identity')+xlab('id')+guides(fill=F)+coord_flip()
+```
+
+Combine topics with original data
+```{r}
+text_topics = cbind(as.integer(topic2@documents),topic2@gamma)
+colnames(text_topics) = c('id','topic1','topic2', 'topic3', 'topic4')
+#colnames(data)
+text_topics = merge(x = text_topics,y = data[,c(6,9)],by=c('id','id'))
+head(text_topics)
+```
+
+Predictive Model
+```{r}
+set.seed(1234)
+split = sample(1:nrow(text_topics),size = 0.7*nrow(text_topics))
+train = text_topics[split,]
+test = text_topics[-split,]
+
+library(rpart)
+model = rpart(rating~.-id,train)
+pred = predict(model,newdata = test)
+sqrt(mean((pred-test$rating)^2))
+```
+
+
+###Topic model based on on positive and negative(LDA)
+
+```{r}
+df_pos<-data%>%
+  unnest_tokens(output = word, input = review)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  filter(sentiment=="positive")
+
+words_pos <- df_pos%>%
+  count(id, word, sort = TRUE) %>%
+  ungroup()
+
+reviewDTM_pos <- words_pos%>%
+  cast_dtm(id, word, n)
+```
+
+
+
+```{r}
+reviewLDA_pos <- LDA(reviewDTM_pos, k = 2, control = list(seed = 1706))
+```
+
+```{r}
+library(kableExtra)
+tibble(topics(reviewLDA_pos))       %>%
+  group_by(`topics(reviewLDA_pos)`) %>%
+  count()                           %>% 
+  kable()                           %>%
+  kable_styling(full_width = F, position = "left")
+```
+
+
+```{r}
+topics_pos <- tidy(reviewLDA_pos, matrix = "beta")
+topics_pos
+```
+
+
+```{r}
+topTerms_pos <- topics_pos %>%
+  group_by(topic)          %>%
+  top_n(5, beta)           %>%
+  ungroup()                %>%
+  arrange(topic, -beta)    %>%
+  mutate(order = rev(row_number())) 
+```
+
+```{r}
+df_pos<-data%>%
+  unnest_tokens(output = word, input = review)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  filter(sentiment=="positive")
+
+df_neg <- data%>%
+  unnest_tokens(output = word, input = review)%>%
+  anti_join(custom_stopwords,by = c('word'='word'))%>%
+  inner_join(get_sentiments('bing'))%>%
+  filter(sentiment=="negative")
+
+words_neg <- df_neg%>%
+  count(id, word, sort = TRUE)%>%
+  ungroup()
+
+reviewDTM_neg <- words_neg%>%
+  cast_dtm(id, word, n)
+
+reviewLDA_neg <- LDA(reviewDTM_neg, k = 2, control = list(seed = 1706))
+
+tibble(topics(reviewLDA_neg))       %>%
+  group_by(`topics(reviewLDA_neg)`) %>%
+  count()                           %>%
+  kable()                           %>%
+  kable_styling(full_width = F, position = "left")
+```
+
+```{r}
+topics_neg <- tidy(reviewLDA_neg, matrix = "beta")
+
+topTerms_neg <- topics_neg          %>%
+  group_by(topic)                   %>%
+  top_n(5, beta)                    %>%
+  ungroup()                         %>%
+  arrange(topic, -beta)             %>%
+  mutate(order = rev(row_number())) 
+```
+
+```{r}
+library(jtools)
+my_theme <- function() {
+  theme_apa(legend.pos   = "none") +
+  theme(panel.background = element_rect(fill = "gray96", colour = "gray96"),
+        plot.background  = element_rect(fill = "gray96", colour = "gray96"),
+        plot.margin      = margin(1, 1, 1, 1, "cm"),
+        panel.border     = element_blank(),        # facet border
+        strip.background = element_blank())        # facet title background
+}
+```
+
+```{r}
+library(gridExtra)
+plot_pos <- topTerms_pos %>%
+  ggplot(aes(order, beta)) +
+  ggtitle("Positive review topics") +
+  geom_col(show.legend = FALSE, fill = "steelblue") +
+  scale_x_continuous(
+    breaks = topTerms_pos$order,
+    labels = topTerms_pos$term,
+    expand = c(0,0)) +
+  facet_wrap(~ topic,scales = "free") +
+  coord_flip(ylim = c(0,0.15)) +
+  my_theme() +
+  theme(axis.title = element_blank())
+
+plot_neg <- topTerms_neg %>%
+  ggplot(aes(order, beta, fill = factor(topic))) +
+  ggtitle("Negative review topics") +
+  geom_col(show.legend = FALSE, fill = "indianred") +
+  scale_x_continuous(
+    breaks = topTerms_neg$order,
+    labels = topTerms_neg$term,
+    expand = c(0,0))+
+  facet_wrap(~ topic,scales = "free") +
+  coord_flip(ylim = c(0,0.15)) +
+  my_theme() +
+  theme(axis.title = element_blank())
+grid.arrange(plot_pos, plot_neg, ncol = 1)
+```
+
+
+#Latent Semantic Analysis (LSA)
+```{r}
+#install.packages('lsa')
+library(lsa)
+clusters = lsa(xdtm)
+# lsa decomposes data into three matrices. The term matrix contains the dimensions from svd
+clusters$tk = as.data.frame(clusters$tk)
+colnames(clusters$tk) = paste0("dim",1:26)
+head(clusters$tk)
+```
+
+Predictive Model
+```{r}
+clusters_data = cbind(id = data$id, rating = data$rating,clusters$tk)
+
+set.seed(1234)
+split = sample(1:nrow(clusters_data),size = 0.7*nrow(clusters_data))
+train = clusters_data[split,]
+test = clusters_data[-split,]
+
+model = rpart(rating~.-id,train)
+pred = predict(model,newdata = test)
+sqrt(mean((pred-test$rating)^2))
+```
+
+lsa (3 dimensions and neighbors)
+```{r}
+library(lsa)
+library(LSAfun)
+TDM = TermDocumentMatrix(corpus1)
+review_lsa = lsa(TDM,dims=3)
+postlasmatrix=review_lsa$tk%*%diag(review_lsa$sk)%*%t(review_lsa$dk)
+```
+
+```{r}
+plot_neighbors("support", #single word
+               n = 10, #number of neighbors
+               tvectors =postlasmatrix) #matrix space
+            
+```
+
+
+```{r}
+plot_neighbors("scam", #single word
+               n = 10, #number of neighbors
+               tvectors =postlasmatrix) #matrix space
+```
+
+```{r}
+plot_neighbors("support", #single word
+               n = 10, #number of neighbors
+               tvectors=postlasmatrix,connect.lines=0,start.lines=T,
+               methd="PCA",dims=3,axes=F,box=F,cex=1,alpha=0.5,col="black",
+               breakdown = FALSE) #matrix space
+```
+
+```{r}
+plot_neighbors("scam", #single word
+               n = 10, #number of neighbors
+               tvectors=postlasmatrix,connect.lines=0,start.lines=T,
+               methd="PCA",dims=3,axes=F,box=F,cex=1,alpha=0.5,col="black",
+               breakdown = FALSE
+               ) #matrix space
+```
+
+
+
+
